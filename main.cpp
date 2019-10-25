@@ -10,5 +10,7 @@ int main(int argc, const char **argv) {
 
 	bool c = UnCompress(dir, 25);
 
+	system("PAUSE");
+
 	return 0;
 }

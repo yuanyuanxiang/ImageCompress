@@ -11,6 +11,9 @@
 
 #define CHECK_BOOL(p) CHECK_CODE(p, true)
 
+// 从小到大排序.
+bool comp(const std::string &i, const std::string &j) { return (i<j); }
+
 // 获取指定目录下的图片.
 std::vector<std::string> ListImages(const std::string &dir)
 {
@@ -33,13 +36,25 @@ std::vector<std::string> ListImages(const std::string &dir)
 	}
 	catch (std::exception e) { if (hFile) _findclose(hFile); }
 
+	std::sort(ret.begin(), ret.end(), comp);
+
 	return ret;
 }
 
 // 保存图片文件.
 int save(const std::string &path, const cv::Mat &ref, const cv::Mat &m) {
-	cv::Mat diff, sign = m > ref; // sign=sign(m-ref)
-	cv::absdiff(m, ref, diff);    // diff= abs(m-ref), m = sign*diff + ref
+#if 0
+	FileStorage fs("data.xml", FileStorage::WRITE);
+	fs << "m" << m;
+	fs.release();
+#endif
+
+	cv::Mat sign; // 正负符号 sign(x) = x>0 ? 1 : -1
+	cv::Mat diff; // 绝对值 |m| = abs(m)
+	// 对任意x, x = sign(x) * abs(x)
+	cv::Mat x = m > ref;
+	cv::bitwise_and(x, 0x00000002, sign);
+	cv::absdiff(m, ref, diff); // diff = abs(m-ref), m = sign*diff + ref
 	std::string new_path = path;
 	FILE *f = fopen(new_path.c_str(), "wb");
 	if (f)
@@ -92,15 +107,36 @@ int load(const std::string &path, const cv::Mat &ref) {
 		dst = len;
 		CHECK_ZLIB(z=uncompress(diff.data, &dst, buffer, src));
 		fclose(f);
+
 		// 还原图像 m = sign*diff + ref
-		cv::bitwise_and(sign, 1, sign);
-		sign.convertTo(sign, CV_32FC3);
-		diff.convertTo(diff, CV_32FC3);
-		cv::multiply(sign - 1, diff, diff);
-		cv::Mat m;
-		ref.convertTo(m, CV_32FC3);
-		m = m + diff;
-		m.convertTo(m, CV_8UC3);
+		cv::Mat m(rows, cols, CV_8UC3);
+		uchar *md = m.data;
+		const uchar *sd = sign.data, *dd = diff.data, *rd = ref.data;
+		for (int r = 0, step = m.step[0]; r < rows; ++r) {
+			uchar *md1 = md;
+			const uchar *sd1 = sd, *dd1 = dd, *rd1 = rd;
+			for (int c = 0, chan = 3; c < cols; ++c) {
+				uchar *md2 = md1;
+				const uchar *sd2 = sd1, *dd2 = dd1, *rd2 = rd1;
+				for (int i = 0, it = 1; i < 3; ++i) {
+					int b = (*sd2 - 1) * *dd2 + *rd2;
+					*md2 = b;
+					assert (b >= 0 && b <= 255);
+					md2 += it, sd2 += it, dd2 += it, rd2 += it;
+				}
+				md1 += chan, sd1 += chan, dd1 += chan, rd1 += chan;
+			}
+			md += step, sd += step, dd += step, rd += step;
+		}
+#if 0
+		FileStorage fs("data.xml", FileStorage::READ);
+		Mat m1;
+		fs["m"] >> m1;
+		fs.release();
+		Scalar S = cv::sum(abs(m1 - m));
+		assert(S.val[0] == 0 && S.val[1] == 0 && S.val[2] == 0);
+#endif
+
 		CHECK_BOOL(cv::imwrite(new_path, m));
 
 		delete[] buffer;
