@@ -8,5 +8,7 @@ int main(int argc, const char **argv) {
 
 	bool b = Compress(dir, 25);
 
+	bool c = UnCompress(dir, 25);
+
 	return 0;
 }
